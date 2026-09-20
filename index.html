@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Status งานก่อสร้าง</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ecebe6;
+    --surface: #f7f6f2;
+    --ink: #23262b;
+    --ink-soft: #6a6d73;
+    --line: #d3d1c9;
+    --accent: #e8a90c;
+    --accent-ink: #23262b;
+    --track: #d3d1c9;
+    --bubble: #6de87a;
+    --bubble-ink: #14301a;
+    --focus: #1d5fd1;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1b1d21;
+      --surface: #25282d;
+      --ink: #eeede8;
+      --ink-soft: #9a9da3;
+      --line: #383c42;
+      --accent: #f2b91f;
+      --accent-ink: #1b1d21;
+      --track: #3a3e45;
+      --bubble: #2c8a45;
+      --bubble-ink: #f1fbf3;
+      --focus: #7fb0ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1b1d21;
+    --surface: #25282d;
+    --ink: #eeede8;
+    --ink-soft: #9a9da3;
+    --line: #383c42;
+    --accent: #f2b91f;
+    --accent-ink: #1b1d21;
+    --track: #3a3e45;
+    --bubble: #2c8a45;
+    --bubble-ink: #f1fbf3;
+    --focus: #7fb0ff;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans Thai", "Sarabun", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 520px; margin: 0 auto; padding: 20px 18px 150px; }
+  h1 { font-size: 22px; font-weight: 700; margin: 4px 0 2px; letter-spacing: -0.01em; }
+  .sub { margin: 0 0 20px; color: var(--ink-soft); font-size: 14px; }
+
+  .status { margin: -12px 0 18px; font-size: 13px; color: var(--ink-soft); }
+  .status.ok { color: var(--ink); }
+  .fields { display: grid; gap: 12px; }
+  label.f { display: block; font-size: 13px; font-weight: 600; color: var(--ink-soft); margin-bottom: 4px; }
+  input[type="text"], input[type="date"] {
+    width: 100%; font: inherit; font-size: 17px; color: var(--ink);
+    background: var(--surface); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 11px 12px; min-height: 48px;
+  }
+  input:focus-visible, button:focus-visible {
+    outline: 3px solid var(--focus); outline-offset: 2px;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .chip {
+    font: inherit; font-size: 14px; color: var(--ink); background: transparent;
+    border: 1.5px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+  h2 { font-size: 15px; font-weight: 600; margin: 28px 0 4px; }
+  .hint { font-size: 13px; color: var(--ink-soft); margin: 0 0 6px; }
+
+  .rows { border-top: 1.5px solid var(--ink); }
+  .row { padding: 12px 0 10px; border-bottom: 1px solid var(--line); }
+  .row-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .row-name { font-size: 16px; font-weight: 500; }
+  .pct-wrap { display: flex; align-items: baseline; gap: 2px; }
+  .pct {
+    width: 3.2ch; text-align: right; font: inherit; font-size: 22px; font-weight: 700;
+    color: var(--ink); background: transparent; border: none; border-bottom: 2px dashed var(--line);
+    padding: 0 0 1px; -moz-appearance: textfield;
+  }
+  .pct::-webkit-outer-spin-button, .pct::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .pct.done { border-bottom-color: var(--accent); }
+  .pct-sign { font-size: 15px; color: var(--ink-soft); }
+
+  .slide { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; flex: 1; height: 34px; background: transparent; margin: 0;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 10px; border-radius: 5px;
+    background: linear-gradient(to right, var(--accent) var(--p, 0%), var(--track) var(--p, 0%));
+  }
+  input[type="range"]::-moz-range-track { height: 10px; border-radius: 5px; background: var(--track); }
+  input[type="range"]::-moz-range-progress { height: 10px; border-radius: 5px; background: var(--accent); }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 28px; height: 28px; border-radius: 50%; margin-top: -9px;
+    background: var(--surface); border: 3px solid var(--ink);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 22px; height: 22px; border-radius: 50%; background: var(--surface); border: 3px solid var(--ink);
+  }
+  .quick { display: flex; gap: 6px; }
+  .q {
+    font: inherit; font-size: 13px; font-weight: 600; min-width: 42px; min-height: 34px;
+    border-radius: 8px; border: 1.5px solid var(--line); background: transparent; color: var(--ink-soft); cursor: pointer;
+  }
+
+  .preview-wrap { display: flex; justify-content: flex-end; margin-top: 10px; }
+  .bubble {
+    background: var(--bubble); color: var(--bubble-ink);
+    border-radius: 18px 18px 4px 18px; padding: 14px 16px; max-width: 100%;
+    white-space: pre-wrap; word-break: break-word; font-size: 16px; line-height: 1.55;
+  }
+
+  .bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    background: var(--bg); border-top: 1.5px solid var(--ink);
+    padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .bar-inner { max-width: 520px; margin: 0 auto; display: flex; gap: 10px; }
+  .btn {
+    font: inherit; font-size: 17px; font-weight: 700; min-height: 52px; border-radius: 12px;
+    border: 2px solid var(--ink); cursor: pointer; padding: 0 16px;
+  }
+  .btn.primary { flex: 1; background: var(--accent); color: var(--accent-ink); }
+  .btn.ghost { background: transparent; color: var(--ink); font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+  .btn:active { transform: translateY(1px); }
+
+  .toast {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+    background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px;
+    font-size: 15px; font-weight: 500; opacity: 0; pointer-events: none;
+    transition: opacity .18s ease; z-index: 20; max-width: 90%; text-align: center;
+  }
+  .toast.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } .btn:active { transform: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>อัปเดตงานก่อสร้าง</h1>
+  <p class="sub">เลื่อนเปอร์เซ็นต์ → กดส่งเข้ากลุ่ม → เลือกกลุ่ม</p>
+  <p class="status" id="status">กำลังเชื่อมต่อ LINE…</p>
+
+  <div class="fields">
+    <div>
+      <label class="f" for="branch">สาขา</label>
+      <input type="text" id="branch" placeholder="เช่น ptf ลาดกระบัง" autocomplete="off">
+      <div class="chips" id="chips" aria-label="สาขาที่เคยใช้"></div>
+    </div>
+    <div>
+      <label class="f" for="date">วันที่</label>
+      <input type="date" id="date">
+    </div>
+  </div>
+
+  <h2>ความคืบหน้าแต่ละงาน</h2>
+  <p class="hint">แตะตัวเลขเพื่อพิมพ์เองได้ ระบบจำค่าล่าสุดของแต่ละสาขาให้</p>
+  <div class="rows" id="rows"></div>
+
+  <h2>ข้อความที่จะส่ง</h2>
+  <div class="preview-wrap"><div class="bubble" id="preview"></div></div>
+</main>
+
+<div class="bar">
+  <div class="bar-inner">
+    <button class="btn primary" id="send" type="button">ส่งเข้ากลุ่ม</button>
+    <button class="btn ghost" id="copy" type="button">คัดลอก</button>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  var ITEMS = [
+    "งานป้ายและโครงสร้างป้าย", "งานสุขาภิบาล", "งานประปา", "งานระบบไฟฟ้า",
+    "งานฝ้า", "งานผนัง", "งานผนังตกแต่ง", "งานปูกระเบื้องพื้น",
+    "งานทาสี", "งานเฟอร์นิเจอร์", "งานติดตั้งกระจก"
+  ];
+  var DEFAULTS = [0, 80, 80, 70, 100, 100, 100, 100, 30, 90, 0];
+  var LIFF_ID = "ใส่ LIFF ID ที่นี่";
+  var KEY = "site-update-v1";
+
+  var store = { last: "", branches: {} };
+  try {
+    var raw = localStorage.getItem(KEY);
+    if (raw) store = JSON.parse(raw) || store;
+    if (!store.branches) store.branches = {};
+  } catch (e) {}
+
+  function saveStore() {
+    try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {}
+  }
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function todayISO() {
+    var d = new Date();
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+  function thaiDate(iso) {
+    if (!iso) return "";
+    var p = iso.split("-");
+    var by = (parseInt(p[0], 10) + 543) % 100;
+    return p[2] + "/" + p[1] + "/" + pad(by);
+  }
+
+  var state = { branch: store.last || "", date: todayISO(), vals: null };
+  state.vals = (state.branch && store.branches[state.branch]) ? store.branches[state.branch].slice() : DEFAULTS.slice();
+
+  var elBranch = document.getElementById("branch");
+  var elDate = document.getElementById("date");
+  var elRows = document.getElementById("rows");
+  var elPrev = document.getElementById("preview");
+  var elChips = document.getElementById("chips");
+  var elToast = document.getElementById("toast");
+  var elStatus = document.getElementById("status");
+  var liffReady = false;
+  var sliders = [], nums = [];
+
+  function clamp(v) {
+    v = parseInt(v, 10);
+    if (isNaN(v)) v = 0;
+    return Math.max(0, Math.min(100, v));
+  }
+
+  function buildRows() {
+    ITEMS.forEach(function (name, i) {
+      var row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML =
+        '<div class="row-top"><span class="row-name"></span>' +
+        '<span class="pct-wrap"><input class="pct" type="number" inputmode="numeric" min="0" max="100" aria-label="เปอร์เซ็นต์"><span class="pct-sign">%</span></span></div>' +
+        '<div class="slide"><input type="range" min="0" max="100" step="5" aria-label="เลื่อนเปอร์เซ็นต์">' +
+        '<span class="quick"><button type="button" class="q" data-v="0">0</button><button type="button" class="q" data-v="100">100</button></span></div>';
+      row.querySelector(".row-name").textContent = name;
+      var num = row.querySelector(".pct");
+      var sl = row.querySelector('input[type="range"]');
+      nums.push(num); sliders.push(sl);
+
+      sl.addEventListener("input", function () { setVal(i, sl.value); });
+      num.addEventListener("input", function () {
+        if (num.value === "") return;
+        setVal(i, num.value, true);
+      });
+      num.addEventListener("blur", function () { syncRow(i); });
+      num.addEventListener("focus", function () { num.select(); });
+      row.querySelectorAll(".q").forEach(function (b) {
+        b.addEventListener("click", function () { setVal(i, b.getAttribute("data-v")); });
+      });
+      elRows.appendChild(row);
+    });
+  }
+
+  function syncRow(i, skipNum) {
+    var v = state.vals[i];
+    sliders[i].value = v;
+    sliders[i].style.setProperty("--p", v + "%");
+    if (!skipNum) nums[i].value = v;
+    nums[i].classList.toggle("done", v === 100);
+  }
+  function syncAll() { for (var i = 0; i < ITEMS.length; i++) syncRow(i); }
+
+  function setVal(i, v, fromTyping) {
+    state.vals[i] = clamp(v);
+    syncRow(i, fromTyping);
+    render();
+  }
+
+  function buildText() {
+    var lines = [];
+    lines.push("อัปเดตงานก่อสร้างวันที่ " + thaiDate(state.date));
+    lines.push("สาขา : " + (state.branch || "-"));
+    ITEMS.forEach(function (n, i) { lines.push("- " + n + " " + state.vals[i] + "%"); });
+    return lines.join("\n");
+  }
+
+  function render() {
+    var t = buildText();
+    elPrev.textContent = t;
+  }
+
+  function renderChips() {
+    elChips.innerHTML = "";
+    Object.keys(store.branches).forEach(function (name) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.textContent = name;
+      b.setAttribute("aria-pressed", name === state.branch ? "true" : "false");
+      b.addEventListener("click", function () { switchBranch(name); });
+      elChips.appendChild(b);
+    });
+  }
+
+  function switchBranch(name) {
+    state.branch = name;
+    elBranch.value = name;
+    if (store.branches[name]) state.vals = store.branches[name].slice();
+    syncAll(); renderChips(); render();
+  }
+
+  elBranch.addEventListener("input", function () {
+    state.branch = elBranch.value.trim();
+    render();
+  });
+  elBranch.addEventListener("change", function () {
+    var name = elBranch.value.trim();
+    if (store.branches[name]) switchBranch(name);
+    else { state.branch = name; renderChips(); render(); }
+  });
+  elDate.addEventListener("input", function () { state.date = elDate.value; render(); });
+
+  function toast(msg) {
+    elToast.textContent = msg;
+    elToast.classList.add("show");
+    clearTimeout(toast.t);
+    toast.t = setTimeout(function () { elToast.classList.remove("show"); }, 2200);
+  }
+
+  function remember() {
+    if (state.branch) {
+      store.branches[state.branch] = state.vals.slice();
+      store.last = state.branch;
+      saveStore();
+      renderChips();
+    }
+  }
+
+  function fallbackCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed"; ta.style.opacity = "0"; ta.style.top = "0";
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, text.length);
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  document.getElementById("copy").addEventListener("click", function () {
+    var text = buildText();
+    remember();
+    function done(ok) {
+      toast(ok ? "คัดลอกแล้ว ไปวางใน LINE ได้เลย" : "คัดลอกไม่สำเร็จ กดค้างที่ข้อความด้านบนเพื่อคัดลอก");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallbackCopy(text)); });
+    } else {
+      done(fallbackCopy(text));
+    }
+  });
+
+
+  function setStatus(msg, ok) {
+    elStatus.textContent = msg;
+    elStatus.classList.toggle("ok", !!ok);
+  }
+
+  function initLiff() {
+    if (!LIFF_ID || LIFF_ID.indexOf("ใส่") === 0) {
+      setStatus("ยังไม่ได้ตั้งค่า LIFF ID ตอนนี้ใช้ปุ่มคัดลอกได้", false);
+      return;
+    }
+    if (!window.liff) {
+      setStatus("โหลด LINE ไม่สำเร็จ ใช้ปุ่มคัดลอกแทนได้", false);
+      return;
+    }
+    liff.init({ liffId: LIFF_ID }).then(function () {
+      liffReady = true;
+      if (!liff.isLoggedIn()) {
+        setStatus("ยังไม่ได้เข้าสู่ระบบ LINE กดส่งเพื่อเข้าสู่ระบบ", false);
+        return;
+      }
+      return liff.getProfile().then(function (p) {
+        setStatus("เข้าสู่ระบบแล้ว: " + p.displayName, true);
+      }, function () {
+        setStatus("เข้าสู่ระบบ LINE แล้ว", true);
+      });
+    }).catch(function (e) {
+      setStatus("เชื่อมต่อ LINE ไม่ได้ (" + (e && e.code ? e.code : "error") + ") ใช้ปุ่มคัดลอกแทนได้", false);
+    });
+  }
+
+  document.getElementById("send").addEventListener("click", function () {
+    if (!liffReady) { toast("ยังเชื่อมต่อ LINE ไม่ได้ ใช้ปุ่มคัดลอกแทนได้"); return; }
+    if (!liff.isLoggedIn()) { liff.login({ redirectUri: window.location.href }); return; }
+    if (!liff.isApiAvailable("shareTargetPicker")) {
+      toast("LINE เครื่องนี้ยังไม่รองรับการส่ง ให้อัปเดต LINE หรือใช้ปุ่มคัดลอก");
+      return;
+    }
+    var text = buildText();
+    if (!state.branch) { toast("ใส่ชื่อสาขาก่อนส่ง"); elBranch.focus(); return; }
+    liff.shareTargetPicker([{ type: "text", text: text }]).then(function (res) {
+      if (res && res.status === "success") {
+        remember();
+        toast("ส่งแล้ว");
+      } else {
+        toast("ยกเลิกการส่ง");
+      }
+    }).catch(function () {
+      toast("ส่งไม่สำเร็จ ลองอีกครั้ง หรือใช้ปุ่มคัดลอก");
+    });
+  });
+
+  elBranch.value = state.branch;
+  elDate.value = state.date;
+  buildRows(); syncAll(); renderChips(); render();
+  initLiff();
+})();
+</script>
+</body>
+</html>
