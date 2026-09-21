@@ -68,8 +68,13 @@
   h1 { font-size: 22px; font-weight: 700; margin: 4px 0 2px; letter-spacing: -0.01em; }
   .sub { margin: 0 0 20px; color: var(--ink-soft); font-size: 14px; }
 
-  .status { margin: -12px 0 18px; font-size: 13px; color: var(--ink-soft); }
+  .statuses { margin: -12px 0 18px; }
+  .status { margin: 0; font-size: 13px; color: var(--ink-soft); }
   .status.ok { color: var(--ink); }
+  .meta { margin: 8px 0 0; font-size: 13px; color: var(--ink-soft); min-height: 1.3em; }
+  .fields > div { min-width: 0; }
+  input[type="date"] { display: block; min-width: 0; max-width: 100%; -webkit-appearance: none; appearance: none; text-align: left; }
+  input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   .fields { display: grid; gap: 12px; }
   label.f { display: block; font-size: 13px; font-weight: 600; color: var(--ink-soft); margin-bottom: 4px; }
   input[type="text"], input[type="date"] {
@@ -163,13 +168,14 @@
 <main>
   <h1>อัปเดตงานก่อสร้าง</h1>
   <p class="sub">เลื่อนเปอร์เซ็นต์ → กดส่งเข้ากลุ่ม → เลือกกลุ่ม</p>
-  <p class="status" id="status">กำลังเชื่อมต่อ LINE…</p>
+  <div class="statuses"><p class="status" id="status">กำลังเชื่อมต่อ LINE…</p><p class="status" id="sync">กำลังโหลดข้อมูลกลาง…</p></div>
 
   <div class="fields">
     <div>
       <label class="f" for="branch">สาขา</label>
-      <input type="text" id="branch" placeholder="เช่น ptf ลาดกระบัง" autocomplete="off">
+      <input type="text" id="branch" placeholder="เช่น ptf ลาดกระบัง" autocomplete="off" maxlength="100">
       <div class="chips" id="chips" aria-label="สาขาที่เคยใช้"></div>
+      <p class="meta" id="meta"></p>
     </div>
     <div>
       <label class="f" for="date">วันที่</label>
@@ -200,17 +206,24 @@
     "งานฝ้า", "งานผนัง", "งานผนังตกแต่ง", "งานปูกระเบื้องพื้น",
     "งานทาสี", "งานเฟอร์นิเจอร์", "งานติดตั้งกระจก"
   ];
-  var DEFAULTS = [0, 80, 80, 70, 100, 100, 100, 100, 30, 90, 0];
+  function zeros() { return ITEMS.map(function () { return 0; }); }
+
   var LIFF_ID = "2011675427-Pcofyare";
+  var SB_URL = "https://ikuridghlvkivovdfzju.supabase.co";
+  var SB_KEY = "sb_publishable_YpsZHQ0JA7l8GahblSGktQ_bu3V6tSe";
+  var TABLE = SB_URL + "/rest/v1/branch_progress";
   var KEY = "site-update-v1";
 
-  var store = { last: "", branches: {} };
+  var store = { last: "", branches: {}, meta: {} };
   try {
     var raw = localStorage.getItem(KEY);
-    if (raw) store = JSON.parse(raw) || store;
-    if (!store.branches) store.branches = {};
+    if (raw) {
+      var parsed = JSON.parse(raw) || {};
+      store.last = parsed.last || "";
+      store.branches = parsed.branches || {};
+      store.meta = parsed.meta || {};
+    }
   } catch (e) {}
-
   function saveStore() {
     try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {}
   }
@@ -223,29 +236,115 @@
   function thaiDate(iso) {
     if (!iso) return "";
     var p = iso.split("-");
-    var by = (parseInt(p[0], 10) + 543) % 100;
-    return p[2] + "/" + p[1] + "/" + pad(by);
+    return p[2] + "/" + p[1] + "/" + pad((parseInt(p[0], 10) + 543) % 100);
+  }
+  function fmtDT(d) {
+    return pad(d.getDate()) + "/" + pad(d.getMonth() + 1) + "/" + pad((d.getFullYear() + 543) % 100) +
+      " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+  function clamp(v) {
+    v = parseInt(v, 10);
+    if (isNaN(v)) v = 0;
+    return Math.max(0, Math.min(100, v));
+  }
+  function validVals(v) {
+    if (!Array.isArray(v) || v.length !== ITEMS.length) return null;
+    return v.map(clamp);
   }
 
-  var state = { branch: store.last || "", date: todayISO(), vals: null };
-  state.vals = (state.branch && store.branches[state.branch]) ? store.branches[state.branch].slice() : DEFAULTS.slice();
+  var state = { branch: store.last || "", date: todayISO(), vals: null, dirty: false };
+  state.vals = (state.branch && validVals(store.branches[state.branch])) ? store.branches[state.branch].slice() : zeros();
 
   var elBranch = document.getElementById("branch");
   var elDate = document.getElementById("date");
   var elRows = document.getElementById("rows");
   var elPrev = document.getElementById("preview");
   var elChips = document.getElementById("chips");
+  var elMeta = document.getElementById("meta");
   var elToast = document.getElementById("toast");
   var elStatus = document.getElementById("status");
+  var elSync = document.getElementById("sync");
   var liffReady = false;
+  var liffName = "";
   var sliders = [], nums = [];
 
-  function clamp(v) {
-    v = parseInt(v, 10);
-    if (isNaN(v)) v = 0;
-    return Math.max(0, Math.min(100, v));
+  /* ---------- Supabase (REST) ---------- */
+  function sb(query, opts) {
+    opts = opts || {};
+    var headers = { apikey: SB_KEY };
+    if (opts.headers) { for (var k in opts.headers) headers[k] = opts.headers[k]; }
+    return fetch(TABLE + query, { method: opts.method || "GET", headers: headers, body: opts.body }).then(function (r) {
+      if (!r.ok) throw new Error("http " + r.status);
+      return r.text().then(function (t) { return t ? JSON.parse(t) : null; });
+    });
   }
 
+  function setSync(msg, ok) {
+    elSync.textContent = msg;
+    elSync.classList.toggle("ok", !!ok);
+  }
+
+  function applyRows(rows) {
+    (rows || []).forEach(function (r) {
+      var v = validVals(r.vals);
+      if (!r.branch || !v) return;
+      store.branches[r.branch] = v;
+      store.meta[r.branch] = { by: r.updated_by || "", at: r.updated_at || "" };
+    });
+    saveStore();
+  }
+
+  function pullAll() {
+    return sb("?select=branch,vals,updated_by,updated_at&order=updated_at.desc&limit=200").then(function (rows) {
+      applyRows(rows);
+      if (!state.dirty) {
+        if (!state.branch && rows && rows.length && !elBranch.value) {
+          state.branch = rows[0].branch;
+          elBranch.value = state.branch;
+        }
+        if (state.branch && validVals(store.branches[state.branch])) {
+          state.vals = store.branches[state.branch].slice();
+          syncAll();
+        }
+      }
+      renderChips(); renderMeta(); render();
+      setSync("ข้อมูลกลางซิงก์แล้ว (ตรงกันทุกเครื่อง)", true);
+    }).catch(function () {
+      setSync("ต่อข้อมูลกลางไม่ได้ ใช้ค่าที่จำในเครื่องนี้ไปก่อน", false);
+    });
+  }
+
+  function pushBranch() {
+    var row = {
+      branch: state.branch,
+      vals: state.vals,
+      updated_by: liffName || null,
+      updated_at: new Date().toISOString()
+    };
+    return sb("?on_conflict=branch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(row)
+    }).then(function () {
+      store.meta[state.branch] = { by: liffName, at: row.updated_at };
+      saveStore();
+      renderMeta(); renderChips();
+      setSync("บันทึกขึ้นข้อมูลกลางแล้ว", true);
+    }).catch(function () {
+      setSync("บันทึกในเครื่องแล้ว แต่ส่งขึ้นข้อมูลกลางไม่สำเร็จ", false);
+    });
+  }
+
+  function remember() {
+    if (!state.branch) return;
+    store.branches[state.branch] = state.vals.slice();
+    store.last = state.branch;
+    saveStore();
+    state.dirty = false;
+    pushBranch();
+  }
+
+  /* ---------- UI ---------- */
   function buildRows() {
     ITEMS.forEach(function (name, i) {
       var row = document.createElement("div");
@@ -259,12 +358,8 @@
       var num = row.querySelector(".pct");
       var sl = row.querySelector('input[type="range"]');
       nums.push(num); sliders.push(sl);
-
       sl.addEventListener("input", function () { setVal(i, sl.value); });
-      num.addEventListener("input", function () {
-        if (num.value === "") return;
-        setVal(i, num.value, true);
-      });
+      num.addEventListener("input", function () { if (num.value === "") return; setVal(i, num.value, true); });
       num.addEventListener("blur", function () { syncRow(i); });
       num.addEventListener("focus", function () { num.select(); });
       row.querySelectorAll(".q").forEach(function (b) {
@@ -285,6 +380,7 @@
 
   function setVal(i, v, fromTyping) {
     state.vals[i] = clamp(v);
+    state.dirty = true;
     syncRow(i, fromTyping);
     render();
   }
@@ -297,14 +393,25 @@
     return lines.join("\n");
   }
 
-  function render() {
-    var t = buildText();
-    elPrev.textContent = t;
+  function render() { elPrev.textContent = buildText(); }
+
+  function renderMeta() {
+    var m = store.meta[state.branch];
+    if (!m || !m.at) { elMeta.textContent = ""; return; }
+    var d = new Date(m.at);
+    if (isNaN(d.getTime())) { elMeta.textContent = ""; return; }
+    elMeta.textContent = "อัปเดตล่าสุด" + (m.by ? "โดย " + m.by : "") + " · " + fmtDT(d);
   }
 
   function renderChips() {
     elChips.innerHTML = "";
-    Object.keys(store.branches).forEach(function (name) {
+    var names = Object.keys(store.branches);
+    names.sort(function (a, b) {
+      var ta = store.meta[a] && store.meta[a].at ? store.meta[a].at : "";
+      var tb = store.meta[b] && store.meta[b].at ? store.meta[b].at : "";
+      return ta < tb ? 1 : ta > tb ? -1 : 0;
+    });
+    names.forEach(function (name) {
       var b = document.createElement("button");
       b.type = "button";
       b.className = "chip";
@@ -318,18 +425,16 @@
   function switchBranch(name) {
     state.branch = name;
     elBranch.value = name;
-    if (store.branches[name]) state.vals = store.branches[name].slice();
-    syncAll(); renderChips(); render();
+    var v = validVals(store.branches[name]);
+    state.vals = v ? v.slice() : zeros();
+    state.dirty = false;
+    syncAll(); renderChips(); renderMeta(); render();
   }
 
-  elBranch.addEventListener("input", function () {
-    state.branch = elBranch.value.trim();
-    render();
-  });
+  elBranch.addEventListener("input", function () { state.branch = elBranch.value.trim(); render(); renderMeta(); });
   elBranch.addEventListener("change", function () {
     var name = elBranch.value.trim();
-    if (store.branches[name]) switchBranch(name);
-    else { state.branch = name; renderChips(); render(); }
+    switchBranch(name);
   });
   elDate.addEventListener("input", function () { state.date = elDate.value; render(); });
 
@@ -338,15 +443,6 @@
     elToast.classList.add("show");
     clearTimeout(toast.t);
     toast.t = setTimeout(function () { elToast.classList.remove("show"); }, 2200);
-  }
-
-  function remember() {
-    if (state.branch) {
-      store.branches[state.branch] = state.vals.slice();
-      store.last = state.branch;
-      saveStore();
-      renderChips();
-    }
   }
 
   function fallbackCopy(text) {
@@ -375,32 +471,21 @@
     }
   });
 
-
+  /* ---------- LIFF ---------- */
   function setStatus(msg, ok) {
     elStatus.textContent = msg;
     elStatus.classList.toggle("ok", !!ok);
   }
 
   function initLiff() {
-    if (!LIFF_ID || LIFF_ID.indexOf("ใส่") === 0) {
-      setStatus("ยังไม่ได้ตั้งค่า LIFF ID ตอนนี้ใช้ปุ่มคัดลอกได้", false);
-      return;
-    }
-    if (!window.liff) {
-      setStatus("โหลด LINE ไม่สำเร็จ ใช้ปุ่มคัดลอกแทนได้", false);
-      return;
-    }
+    if (!window.liff) { setStatus("โหลด LINE ไม่สำเร็จ ใช้ปุ่มคัดลอกแทนได้", false); return; }
     liff.init({ liffId: LIFF_ID }).then(function () {
       liffReady = true;
-      if (!liff.isLoggedIn()) {
-        setStatus("ยังไม่ได้เข้าสู่ระบบ LINE กดส่งเพื่อเข้าสู่ระบบ", false);
-        return;
-      }
+      if (!liff.isLoggedIn()) { setStatus("ยังไม่ได้เข้าสู่ระบบ LINE กดส่งเพื่อเข้าสู่ระบบ", false); return; }
       return liff.getProfile().then(function (p) {
-        setStatus("เข้าสู่ระบบแล้ว: " + p.displayName, true);
-      }, function () {
-        setStatus("เข้าสู่ระบบ LINE แล้ว", true);
-      });
+        liffName = p.displayName || "";
+        setStatus("เข้าสู่ระบบแล้ว: " + liffName, true);
+      }, function () { setStatus("เข้าสู่ระบบ LINE แล้ว", true); });
     }).catch(function (e) {
       setStatus("เชื่อมต่อ LINE ไม่ได้ (" + (e && e.code ? e.code : "error") + ") ใช้ปุ่มคัดลอกแทนได้", false);
     });
@@ -413,24 +498,24 @@
       toast("LINE เครื่องนี้ยังไม่รองรับการส่ง ให้อัปเดต LINE หรือใช้ปุ่มคัดลอก");
       return;
     }
-    var text = buildText();
     if (!state.branch) { toast("ใส่ชื่อสาขาก่อนส่ง"); elBranch.focus(); return; }
-    liff.shareTargetPicker([{ type: "text", text: text }]).then(function (res) {
-      if (res && res.status === "success") {
-        remember();
-        toast("ส่งแล้ว");
-      } else {
-        toast("ยกเลิกการส่ง");
-      }
+    liff.shareTargetPicker([{ type: "text", text: buildText() }]).then(function (res) {
+      if (res && res.status === "success") { remember(); toast("ส่งแล้ว"); }
+      else { toast("ยกเลิกการส่ง"); }
     }).catch(function () {
       toast("ส่งไม่สำเร็จ ลองอีกครั้ง หรือใช้ปุ่มคัดลอก");
     });
   });
 
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && !state.dirty) pullAll();
+  });
+
   elBranch.value = state.branch;
   elDate.value = state.date;
-  buildRows(); syncAll(); renderChips(); render();
+  buildRows(); syncAll(); renderChips(); renderMeta(); render();
   initLiff();
+  pullAll();
 })();
 </script>
 </body>
