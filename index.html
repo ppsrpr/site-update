@@ -110,22 +110,28 @@
   .pct-sign { font-size: 15px; color: var(--ink-soft); }
 
   .slide { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-  input[type="range"] {
-    -webkit-appearance: none; appearance: none; flex: 1; height: 34px; background: transparent; margin: 0;
+  /* Custom slider: the bar itself ignores taps — only the handle responds,
+     so a stray touch on the track can never change the value. */
+  .strack { position: relative; flex: 1; height: 34px; touch-action: none; }
+  .strack .strack-bg {
+    position: absolute; top: 50%; left: 0; right: 0; height: 10px; margin-top: -5px;
+    border-radius: 5px; background: var(--track); pointer-events: none;
   }
-  input[type="range"]::-webkit-slider-runnable-track {
-    height: 10px; border-radius: 5px;
-    background: linear-gradient(to right, var(--accent) var(--p, 0%), var(--track) var(--p, 0%));
+  .strack .strack-fill {
+    position: absolute; top: 50%; left: 0; height: 10px; margin-top: -5px;
+    border-radius: 5px; background: var(--accent); pointer-events: none; width: 0%;
   }
-  input[type="range"]::-moz-range-track { height: 10px; border-radius: 5px; background: var(--track); }
-  input[type="range"]::-moz-range-progress { height: 10px; border-radius: 5px; background: var(--accent); }
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 28px; height: 28px; border-radius: 50%; margin-top: -9px;
-    background: var(--surface); border: 3px solid var(--ink);
+  .strack .sthumb {
+    position: absolute; top: 50%; left: 0%; width: 44px; height: 44px;
+    margin-top: -22px; margin-left: -22px; touch-action: none; cursor: grab;
+    display: flex; align-items: center; justify-content: center;
   }
-  input[type="range"]::-moz-range-thumb {
-    width: 22px; height: 22px; border-radius: 50%; background: var(--surface); border: 3px solid var(--ink);
+  .strack .sthumb::after {
+    content: ""; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--surface); border: 3px solid var(--ink); box-sizing: border-box;
   }
+  .strack .sthumb.dragging::after { border-color: var(--accent); cursor: grabbing; }
+  .strack .sthumb:focus-visible::after { outline: 3px solid var(--focus); outline-offset: 2px; }
   .quick { display: flex; gap: 6px; }
   .q {
     font: inherit; font-size: 13px; font-weight: 600; min-width: 42px; min-height: 34px;
@@ -352,13 +358,49 @@
       row.innerHTML =
         '<div class="row-top"><span class="row-name"></span>' +
         '<span class="pct-wrap"><input class="pct" type="number" inputmode="numeric" min="0" max="100" aria-label="เปอร์เซ็นต์"><span class="pct-sign">%</span></span></div>' +
-        '<div class="slide"><input type="range" min="0" max="100" step="5" aria-label="เลื่อนเปอร์เซ็นต์">' +
+        '<div class="slide"><div class="strack"><div class="strack-bg"></div><div class="strack-fill"></div>' +
+        '<div class="sthumb" tabindex="0" role="slider" aria-label="เลื่อนเปอร์เซ็นต์" aria-valuemin="0" aria-valuemax="100" aria-valuestep="5"></div></div>' +
         '<span class="quick"><button type="button" class="q" data-v="0">0</button><button type="button" class="q" data-v="100">100</button></span></div>';
       row.querySelector(".row-name").textContent = name;
       var num = row.querySelector(".pct");
-      var sl = row.querySelector('input[type="range"]');
-      nums.push(num); sliders.push(sl);
-      sl.addEventListener("input", function () { setVal(i, sl.value); });
+      var track = row.querySelector(".strack");
+      var fill = row.querySelector(".strack-fill");
+      var thumb = row.querySelector(".sthumb");
+      nums.push(num);
+      sliders.push({ track: track, fill: fill, thumb: thumb });
+
+      /* Only a pointerdown that starts ON the handle can begin a drag —
+         tapping anywhere else on the bar is a no-op, so a graze of the
+         row while scrolling can never move the value. */
+      var dragging = false;
+      thumb.addEventListener("pointerdown", function (ev) {
+        dragging = true;
+        thumb.classList.add("dragging");
+        try { thumb.setPointerCapture(ev.pointerId); } catch (e) {}
+        ev.preventDefault();
+      });
+      function moveFromEvent(ev) {
+        var rect = track.getBoundingClientRect();
+        var pct = rect.width ? (ev.clientX - rect.left) / rect.width * 100 : 0;
+        setVal(i, Math.round(pct / 5) * 5);
+      }
+      thumb.addEventListener("pointermove", function (ev) { if (dragging) moveFromEvent(ev); });
+      function endDrag(ev) {
+        if (!dragging) return;
+        dragging = false;
+        thumb.classList.remove("dragging");
+        try { thumb.releasePointerCapture(ev.pointerId); } catch (e) {}
+      }
+      thumb.addEventListener("pointerup", endDrag);
+      thumb.addEventListener("pointercancel", endDrag);
+      thumb.addEventListener("keydown", function (ev) {
+        var step = (ev.key === "PageUp" || ev.key === "PageDown") ? 20 : 5;
+        if (ev.key === "ArrowRight" || ev.key === "ArrowUp" || ev.key === "PageUp") { setVal(i, state.vals[i] + step); ev.preventDefault(); }
+        else if (ev.key === "ArrowLeft" || ev.key === "ArrowDown" || ev.key === "PageDown") { setVal(i, state.vals[i] - step); ev.preventDefault(); }
+        else if (ev.key === "Home") { setVal(i, 0); ev.preventDefault(); }
+        else if (ev.key === "End") { setVal(i, 100); ev.preventDefault(); }
+      });
+
       num.addEventListener("input", function () { if (num.value === "") return; setVal(i, num.value, true); });
       num.addEventListener("blur", function () { syncRow(i); });
       num.addEventListener("focus", function () { num.select(); });
@@ -371,8 +413,10 @@
 
   function syncRow(i, skipNum) {
     var v = state.vals[i];
-    sliders[i].value = v;
-    sliders[i].style.setProperty("--p", v + "%");
+    var s = sliders[i];
+    s.fill.style.width = v + "%";
+    s.thumb.style.left = v + "%";
+    s.thumb.setAttribute("aria-valuenow", v);
     if (!skipNum) nums[i].value = v;
     nums[i].classList.toggle("done", v === 100);
   }
